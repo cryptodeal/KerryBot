@@ -1,6 +1,6 @@
 {
   "name": "kerrybot",
-  "version": "0.0.1",
+  "version": "0.1.2",
   "description": "John motherfucking Kerry",
   "main": "index.js",
   "scripts": {
