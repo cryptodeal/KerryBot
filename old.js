@@ -1,9 +1,11 @@
-require('@tensorflow/tfjs-node')
-const toxicity = require('@tensorflow-models/toxicity');
+//const request = require('request');
 const WebSocket = require('ws');
+const toxicity = require('@tensorflow-models/toxicity');
 require('dotenv').config();
 const threshold = 0.75;
 
+//Keywords for both comments and posts
+//var randomUsers = [];
 
 const config = [
   { auth: process.env.LEMMY_JWT1, username: process.env.LEMMY_USERNAME1, userId: process.env.LEMMY_USERID1 },
@@ -13,7 +15,8 @@ const config = [
   //{ auth: process.env.LEMMY_JWT5, username: process.env.LEMMY_USERNAME5, userId: process.env.LEMMY_USERID5 },
   //{ auth: process.env.LEMMY_JWT6, username: process.env.LEMMY_USERNAME6, userId: process.env.LEMMY_USERID6 },
   //{ auth: process.env.LEMMY_JWT7, username: process.env.LEMMY_USERNAME7, userId: process.env.LEMMY_USERID7 },
-  //{ auth: process.env.LEMMY_JWT9, username: process.env.LEMMY_USERNAME9, userId: process.env.LEMMY_USERID8 }
+  //{ auth: process.env.LEMMY_JWT8, username: process.env.LEMMY_USERNAME8, userId: process.env.LEMMY_USERID8 },
+  //{ auth: process.env.LEMMY_JWT9, username: process.env.LEMMY_USERNAME9, userId: process.env.LEMMY_USERID9 }
   //{ auth: process.env.LEMMY_JWT10, username: process.env.LEMMY_USERNAME10, userId: process.env.LEMMY_USERID10 },
   //{ auth: process.env.LEMMY_JWT11, username: process.env.LEMMY_USERNAME11, userId: process.env.LEMMY_USERID11 },
   //{ auth: process.env.LEMMY_JWT12, username: process.env.LEMMY_USERNAME12, userId: process.env.LEMMY_USERID12 },
@@ -75,22 +78,10 @@ const postCacheGet = (postId) => {
   return postCacheIndex[postId];
 }
 
-const parsePostToxicity = async (name, body) => {
-  console.log(`Analyzing post for toxicity.\n`)
-  var sentences = [name];
-  if(body !== null) sentences.push(body)
-  return toxicity.load(threshold).then(model => {
-    return model.classify(sentences).then(predictions => {
-      return predictions.findIndex(prediction => prediction.results[0].match === true);
-    }).catch(console.error);
-  }).catch(console.error);
-}
-
-const parseCommentToxicity =  (content) => {
-  console.log(`Analyzing comment for toxicity.\n`)
-  var sentences = [content];
-  return toxicity.load(threshold).then(model => {
-    return model.classify(sentences).then(predictions => {
+const parsePostToxicity = (name, body) => {
+  toxicity.load(threshold).then(model => {
+    const sentences = [name, body];
+    model.classify(sentences).then(predictions => {
       return predictions.findIndex(prediction => prediction.results[0].match === true);
     }).catch(console.error);
   }).catch(console.error);
@@ -125,7 +116,7 @@ const getPosts = () => {
 }
 
 const likePost = (postId) => {
-  //console.log('Liking Post\n');
+  console.log('Liking Post');
   //let users = await getRandom(5)
   config.map(user => {
     ws.send(JSON.stringify({
@@ -140,7 +131,7 @@ const likePost = (postId) => {
 };
 
 const likeComment = (commentId, postId) => {
-  //console.log('Liking Comment\n');
+  console.log('Liking Comment');
   //let users = await getRandom(5)
   config.map(user => {
     ws.send(JSON.stringify({
@@ -155,56 +146,63 @@ const likeComment = (commentId, postId) => {
   })
 };
 
-const handlePosts = async (data) => {
-  const posts = data.posts
-  for(i=0; i<posts.length; i++){
-    //console.log(posts[i].name)
-    if (!postCacheGet(posts[i].id)) {
-      postCachePush(posts[i].id);
-      let result = await parsePostToxicity(posts[i].name, posts[i].body)
-      //console.log(result)
-      if(result !== -1){
-        //console.log(posts[i])
-        console.log(`Post is toxic: ${posts[i].id}\n`)
-        likePost(posts[i].id);
-      } else{
-        //console.log(posts[i])
-        console.log(`Post is not toxic.\n`);
-      }
-      //console.log(`${posts[i].id}\t|\t${posts[i].name}\n`);
+const savePost = (postId) => {
+  console.log('Saving Post');
+  ws.send(JSON.stringify({
+    op: 'SavePost',
+    data: {
+      post_id: postId,
+      save: true,
+      auth: config.auth
     }
-  }
+  }));
+};
+
+const saveComment = (commentId) => {
+  console.log('Saving Comment');
+  ws2.send(JSON.stringify({
+    op: 'SaveComment',
+    data: {
+      post_id: commentId,
+      save: true,
+      auth: config.auth
+    }
+  }));
+};
+
+
+const handlePosts = async (posts) => {
+  posts.map((post) => {
+    if (!postCacheGet(post.id)) {
+      postCachePush(post.id);
+      let result = await parsePostToxicity(name, body)
+      if(result !== -1){
+        likePost(post.id);
+      }
+      console.log(`${post.id}\t|\t${post.name}`);
+    }
+  });
 }
 
-const handleComments = async (data) => {
-  const comments = data.comments
-  for(i=0; i<comments.length; i++){
-    if (!commentCacheGet(comments[i].id)) {
-      commentCachePush(comments[i].id);
-      let result = await parseCommentToxicity(comments[i].content)
-      //console.log(result)
-      if(result !== -1){
-        //console.log(comments[i])
-        console.log(`Comment is toxic: ${comments[i].id}\n`)
-        likeComment(comments[i].id, comments[i].post_id);;
-      } else {
-        //console.log(comments[i])
-        console.log(`Comment is not toxic.\n`);
-      }
-      //console.log(`${comments[i].id}\t|\t${comments[i].content}\n`);
+const handleComments = (comments) => {
+  comments.map(comment => {
+    if (!commentCacheGet(comment.id)) {
+      commentCachePush(comment.id);
+      likeComment(comment.id, comment.post_id);
+      console.log(`${comment.id}\t|\t${comment.content}`);
     }
-  }
+  })
 }
 
 const handlePostLike = (data) => {
   if (data.post.my_vote === 1) {
-    console.log(`Account: ${data.post.user_id}, liked post #${data.post.id}\n`);
+    console.log(`Account: ${data.post.user_id}, liked post #${data.post.id}`);
   }
 };
 
 const handleCommentLike = (data) => {
   if (data.comment.my_vote === 1) {
-    console.log(`Account: ${data.comment.user_id}, liked comment #${data.comment.id}\n`);
+    console.log(`Account: ${data.comment.user_id}, liked comment #${data.comment.id}`);
   }
 };
 
@@ -243,11 +241,11 @@ ws.on('open', () => {
         case 'GetComments': {
           return handleComments(res.data);
         }
-        case 'CreatePostLike': {
-          return handlePostLike(res.data);
+        case 'CreatePostReport': {
+          return handlePostReport(res.data);
         }
-        case 'CreateCommentLike': {
-          return handleCommentLike(res.data);
+        case 'CreateCommentReport': {
+          return handleCommentReport(res.data);
         }
         default: {
           break;
@@ -259,6 +257,6 @@ ws.on('open', () => {
   });
   getContent();
   setInterval(() => {
-    getContent();
-  }, 180000)
+      getContent();
+  }, 30000)
 });
